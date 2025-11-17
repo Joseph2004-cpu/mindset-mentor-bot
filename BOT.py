@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import re
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -16,8 +17,8 @@ import json
 
 # Bot States
 (MSG_1, MSG_2, MSG_3, MSG_4, MSG_5, MSG_6, MSG_7, MSG_8, 
- PRODUCT_INTRO, POST_PURCHASE_START, FIRST_INSIGHT, FOCUS_AREA, 
- SYSTEM_BUILDING, CHECKIN_RESPONSE) = range(14)
+ EMAIL_CAPTURE, PRODUCT_INTRO, POST_PURCHASE_START, FIRST_INSIGHT, FOCUS_AREA, 
+ SYSTEM_BUILDING, CHECKIN_RESPONSE) = range(15)
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -67,13 +68,9 @@ class MindsetBot:
         
         # Check if user has already purchased
         if user_data.get('purchased', False):
-            await update.message.reply_text(
-                f"Hey {first_name}! Welcome back! 🙌\n\n"
-                "Ready to continue building your system? I'm here whenever you need me.\n\n"
-                "Type /continue to pick up where we left off, or just tell me what's on your mind."
-            )
-            return POST_PURCHASE_START
-        
+            # Route to a dedicated post-purchase handler for clarity
+            return await self.post_purchase_start(update, context)
+
         # Check if returning user who didn't purchase
         if user_data.get('initial_concern'):
             await update.message.reply_text(
@@ -84,9 +81,8 @@ class MindsetBot:
         else:
             await update.message.reply_text(
                 f"Hey {first_name}! 👋\n\n"
-                "I'm really glad you're here. Can I ask you something honest?\n\n"
-                "**What's the one thing you wish you could change about how you're showing up right now?**\n\n"
-                "(No judgment—just curious what brought you here today.)"
+                "Quick question: If you could change one thing about how you show up each day, what would it be?\n\n"
+                "No judgment—just one sentence."
             )
         
         self.update_user_data(user_id, {'first_name': first_name, 'started_at': str(datetime.now())})
@@ -142,6 +138,48 @@ class MindsetBot:
         
         await update.message.reply_text(reply)
         return MSG_2
+
+    async def post_purchase_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Post-purchase welcome shown to users who already purchased."""
+        first_name = update.effective_user.first_name
+
+        await update.message.reply_text(
+            f"Hey {first_name}! 👋\n\n"
+            "I'm really glad you're here. Can I ask you something honest?\n\n"
+            "**What's the one thing you wish you could change about how you're showing up right now?**\n\n"
+            "(No judgment—just curious what brought you here today.)"
+        )
+
+        return POST_PURCHASE_START
+
+    async def capture_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Capture and validate user's email before sending payment link."""
+        user_id = update.effective_user.id
+        first_name = update.effective_user.first_name
+        text = update.message.text.strip()
+
+        # Simple email validation
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", text):
+            await update.message.reply_text(
+                "Hmm — that doesn't look like a valid email. Please reply with the email you'd like me to send the PDF to."
+            )
+            return EMAIL_CAPTURE
+
+        # Save email and mark a pending payment (will be verified later via webhook ideally)
+        self.update_user_data(user_id, {'email': text, 'pending_payment': True})
+
+        # Send the payment link (placeholder link kept)
+        payment_message = (
+            f"Thanks, {first_name}! I've saved {text} as your email.\n\n"
+            f"Tap below to securely pay GHS 75 and you'll get the PDF by email immediately:\n\n"
+            f"👉 {PAYSTACK_LINK}\n\n"
+            "After payment, tap the 'I've Completed Payment' button here so I can verify and get you onboarded."
+        )
+
+        keyboard = [[InlineKeyboardButton("✅ I've Completed Payment", callback_data="confirm_payment")]]
+        await update.message.reply_text(payment_message, reply_markup=InlineKeyboardMarkup(keyboard))
+
+        return PRODUCT_INTRO
 
     async def message_2(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Message 3: Deeper diagnosis - SHORT"""
@@ -349,8 +387,16 @@ class MindsetBot:
         
         user_id = query.from_user.id
         first_name = query.from_user.first_name
+        user_data = self.get_user_data(user_id)
         
         if query.data == "show_payment":
+            # If we don't have an email for this user yet, capture it first
+            if not user_data.get('email'):
+                await query.edit_message_text(
+                    "Great — which email should I send your PDF to?\n\n"
+                    "Reply with your email address and I'll send the secure payment link there."
+                )
+                return EMAIL_CAPTURE
             payment_message = (
                 f"Perfect, {first_name}! Here's your access link:\n\n"
                 f"👉 {PAYSTACK_LINK}\n\n"
@@ -850,6 +896,7 @@ def main():
                 CallbackQueryHandler(bot.button_handler),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, bot.message_8)
             ],
+            EMAIL_CAPTURE: [MessageHandler(filters.TEXT & ~filters.COMMAND, bot.capture_email)],
             POST_PURCHASE_START: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, bot.continue_command)
             ],
