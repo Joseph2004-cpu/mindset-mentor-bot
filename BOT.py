@@ -10,116 +10,38 @@ from telegram.ext import (
     ContextTypes,
     filters,
     ConversationHandler,
-    JobQueue,
 )
 import json
 
-(CONVERSATION, PRODUCT_INTRO, PDF_READING, PDF_FEEDBACK, FOCUS_AREA, 
- SYSTEM_BUILDING, CHECKIN_RESPONSE) = range(7)
+PRE_PURCHASE_QUESTION = range(1)
+WAITING_FOR_PURCHASE = range(1)
+POST_PURCHASE_FEEDBACK = range(1)
+FOCUS_AREA = range(1)
+SYSTEM_BUILDING = range(1)
+CHECKIN_RESPONSE = range(1)
 
-# Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Your Paystack payment link
 PAYSTACK_LINK = "https://paystack.com/buy/unleash-your-ultimate-mindset-the-5-step-blueprint-to-uwsyav"
 
 class MindsetBot:
     def __init__(self):
         self.user_data_file = "user_data.json"
         self.load_user_data()
-        self.pdf_redirect_message = (
-            "🔗 **Got value from this? Let's go deeper.**\n\n"
-            "Click here to continue: t.me/YOUR_BOT_USERNAME?start=pdf_redirect\n\n"
-            "We'll transform this knowledge into your personal system. 💪"
-        )
         
-        self.question_sequences = {
-            'stuck': [
-                "So you feel stuck. Let me ask—when you look at areas where you ARE making progress, what's different about those?",
-                "Interesting. So there are areas working. What would happen if you applied that same approach to where you're stuck?",
-                "That's solid thinking. Now real question: if you had to pick ONE specific area where you're stuck, what would it be?",
-                "Got it. And in that area, are you struggling because you don't know WHAT to do, or because you can't make yourself DO it?",
-                "Ah, so it's a {struggle_type} issue. How long have you been dealing with this particular block?",
-                "And during that time, have you tried changing anything, or has it pretty much stayed the same?",
-                "Why do you think your previous attempts didn't stick? What usually gets in the way?",
-                "That's the real insight. So the problem isn't knowledge—it's something in your operating system. Sound right?",
-                "What if I told you there's a way to rewire that operating system so this block becomes impossible? Would that interest you?",
-                "Before I show you what that looks like, help me understand: if this block disappeared tomorrow, what would actually change in your life?"
-            ],
-            'motivation': [
-                "Motivation's tricky. But here's what I notice—you're probably crushing it in SOME areas. What's one thing you never skip?",
-                "Interesting! So you CAN sustain. The question is: what's different about that versus where you struggle?",
-                "Got it. So when you're strong in that area, what does your mindset feel like compared to other areas?",
-                "That's key. So it's not about finding MORE motivation—it's about replicating that mindset. Make sense?",
-                "Now let me ask the hard one: why do you think you can't replicate it elsewhere? What's the real difference?",
-                "And that difference you mentioned—is that something about YOU, or something about the environment/systems?",
-                "So if you fixed that one thing, do you think everything else would fall into place? Or are there other blocks?",
-                "Tell me this: if someone gave you a proven system that made showing up automatic (not something you had to willpower), would you use it?",
-                "Why do you think systems matter more than motivation for sustaining change?",
-                "Okay, here's the real question: what would your life look like 6 months from now if you had that kind of automatic system in place?"
-            ],
-            'goals': [
-                "Goals are great. But let me ask—when you imagine achieving this goal, what emotion comes up? Excitement or anxiety?",
-                "Interesting. So there's {emotion} underneath. What do you think that's about—is it the goal itself, or something about achieving it?",
-                "Got it. And if we removed that {emotion}, would you be all in? Or is there something else?",
-                "Okay. So beyond the emotion, what's the actual gap between where you are now and that goal?",
-                "And in that gap, what scares you most? Being honest—what's the real fear?",
-                "That fear is smart—it means you care. But here's what I'm curious: what would happen if you reframed that fear as DATA instead of a stop sign?",
-                "What if failure in this goal wasn't the end, but actually the fastest way to learn what works?",
-                "If that were true, how would you approach this goal differently? What would you try that you're currently avoiding?",
-                "So you'd be bolder, smarter, faster. What's stopping you from doing that right now?",
-                "Last one: if you HAD to achieve this goal in the next 6 months no matter what, and you could change any beliefs holding you back—what would you change about yourself?"
-            ],
-            'procrastination': [
-                "Procrastination's interesting. It's not laziness—it's resistance. What specifically are you resisting about this thing?",
-                "Got it. So there's resistance around {resistance_type}. When did that resistance start? Was it always there for this?",
-                "And when you try to push through that resistance, what happens? Do you force yourself, or do you just... not do it?",
-                "Okay. So it's avoidance, not inability. Here's the question: what feeling are you avoiding when you procrastinate?",
-                "That feeling—{avoided_feeling}—where did it come from? When's the first time you remember feeling that way about starting something?",
-                "Interesting. So there's a deeper pattern. But let me ask: are there things you DON'T procrastinate on? Times when you just... start?",
-                "Yes! So you CAN do it. What's different about those things? Why don't you resist them?",
-                "That's crucial. So if we could make your goal feel as {non_resistance_quality} as that, you'd just do it. Right?",
-                "What if I told you that's actually possible—not through motivation, but through changing how you approach the thing itself?",
-                "Before I explain how, tell me: if you could eliminate procrastination on this ONE thing, what would that make possible for you?"
-            ],
-            'fear': [
-                "Fear makes sense. It means you care about this. But let me ask—what specifically are you afraid of? Be specific.",
-                "Got it. So the fear is {specific_fear}. Has that happened before, or is it a fear of the unknown?",
-                "And if it DID happen, what would that actually mean about you? What's the worst-case narrative in your head?",
-                "That narrative—where did it come from? Who taught you that story?",
-                "Interesting. So that story has been running for a while. But here's what I want to know: have you ever DISPROVEN that story? Any counter-evidence?",
-                "See, that's proof the story isn't true. So why does your brain keep telling it?",
-                "What if instead of trying to eliminate the fear, you just... did it scared? What's stopping you?",
-                "Real talk: what would happen if you failed at this thing you're afraid of? Would you actually die, lose everything, or is it more abstract?",
-                "So the actual consequence is manageable. Why does your brain treat it like a death sentence?",
-                "Okay, final one: if you knew you'd fail safely—that you'd learn, adapt, and come out stronger—would you try? What would that change?"
-            ],
-            'money': [
-                "Money goals are really about *what money enables*. So let me ask: what do you think this money will actually change about your life?",
-                "Interesting. So it's not the money itself—it's the freedom/security/respect/whatever. Let me ask: can you get SOME of that without waiting for the money?",
-                "Thought so. So the blocker isn't money—it's something else. What IS actually holding you back from having that now, in some form?",
-                "Got it. So if we fixed THAT, would the money follow? Or are they separate?",
-                "Let me reframe: if you had to choose between the money and the mindset/skill/confidence it represents, which matters more?",
-                "Right. So the real goal is becoming the person who earns/commands that money. How do you become that person?",
-                "And what's stopping you from starting that transformation TODAY, before the money shows up?",
-                "What if I told you the transformation comes first, THEN the money follows? Have you seen that happen?",
-                "So you know it's possible. What would be different about you if you started now instead of waiting?",
-                "Okay, final question: what's ONE move you could make in the next 48 hours that would put you on that path? What's the real blocker?"
-            ],
-            'general': [
-                "Interesting. Help me understand the deeper layer—when you imagine solving this, what REALLY changes in your life?",
-                "That shift you described—is that about external things changing, or is it about YOU changing how you see things?",
-                "Got it. So there's both external and internal. Which one feels more in your control right now?",
-                "And the one that feels less in your control—what makes it feel impossible?",
-                "Okay, so that feels impossible. But have you ever accomplished something that ALSO felt impossible before you started?",
-                "How did you overcome that? What was different about that time?",
-                "So you've done hard things. What's different about THIS situation that makes it feel different?",
-                "Is it actually different, or are you bringing a different mindset to it? What's actually changed about you since then?",
-                "Here's the question: if you brought THAT version of you—the one who conquered the impossible—to this current situation, what would shift?",
-                "What would that person do RIGHT NOW to move forward? And what's stopping you from being that person today?"
-            ]
-        }
+        self.mindset_questions = [
+            "So you want to change something about yourself. Help me understand—what does change look like for you? What's the outcome you're actually chasing?",
+            "Interesting. So {outcome} is the goal. But here's the real question: what stops you from having that NOW? What's the actual blocker?",
+            "Got it. So it's about {blocker}. Is that something outside your control, or something inside?",
+            "And that {inner_issue}—when did it start? Was it always there, or did something create it?",
+            "That makes sense. But let me ask: have you EVER overcome something similar before? Any time you crushed a challenge?",
+            "Yes! So you KNOW how. What was different about that situation versus now? Why could you do it then but not now?",
+            "So it comes down to {difference}. That's the real insight. But here's what I want to know: what if you brought THAT version of you to this situation? What would shift?",
+            "Right. So you already have the capability. It's a mindset thing, not a skill thing. The question becomes: what's keeping you stuck in the old mindset?",
+            "Is it fear? Doubt? Past failures? Feeling like you don't deserve it? What's the real belief holding you back?",
+            "Okay. Here's what's clear: your challenge isn't about trying harder or knowing more. It's about rewiring that belief at the deepest level—your operating system. Does that resonate?"
+        ]
     
     def load_user_data(self):
         try:
@@ -142,31 +64,6 @@ class MindsetBot:
         self.user_db[user_id_str].update(data)
         self.save_user_data()
     
-    def adapt_response(self, text: str) -> str:
-        text_lower = text.lower()
-        
-        if any(word in text_lower for word in ['stuck', 'stagnant', 'plateau', 'same place']):
-            return "stuck"
-        elif any(word in text_lower for word in ['motivat', 'discipline', 'lazy', 'willpower']):
-            return "motivation"
-        elif any(word in text_lower for word in ['goal', 'achieve', 'success', 'dream', 'want']):
-            return "goals"
-        elif any(word in text_lower for word in ['start', 'procrastin', 'delay', 'later']):
-            return "procrastination"
-        elif any(word in text_lower for word in ['fail', 'fear', 'scared', 'anxious', 'afraid']):
-            return "fear"
-        elif any(word in text_lower for word in ['money', 'income', 'business', 'career', 'financial']):
-            return "money"
-        elif any(word in text_lower for word in ['relationship', 'partner', 'people', 'social']):
-            return "relationships"
-        elif any(word in text_lower for word in ['health', 'weight', 'fitness', 'gym', 'diet']):
-            return "health"
-        elif any(word in text_lower for word in ['time', 'busy', 'overwhelm', 'stress', 'chaos']):
-            return "time"
-        elif any(word in text_lower for word in ['confident', 'doubt', 'imposter', 'good enough']):
-            return "confidence"
-        return "general"
-    
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
@@ -175,130 +72,87 @@ class MindsetBot:
         if user_data.get('purchased'):
             await update.message.reply_text(
                 f"Hey {first_name}! Welcome back! 🙌\n\n"
-                "Ready to keep building? What's on your mind right now?"
+                "Ready to keep building? What's on your mind?"
             )
             return CHECKIN_RESPONSE
         
-        if user_data.get('initial_concern'):
+        if user_data.get('question_count', 0) > 0:
+            question_count = user_data.get('question_count', 0)
             await update.message.reply_text(
-                f"Hey {first_name}! 👋 Good to see you again.\n\n"
-                "Let's pick up from where we left off."
+                f"Hey {first_name}! Let's pick up where we left off."
             )
-            concern_type = user_data.get('concern_type', 'general')
-            exchange_count = user_data.get('exchange_count', 0)
-            if exchange_count < 10:
-                context.user_data['concern_type'] = concern_type
-                context.user_data['exchange_count'] = exchange_count
-        else:
-            await update.message.reply_text(
-                f"Hey {first_name}! 👋\n\n"
-                "I'm glad you're here. I want to ask you something real:\n\n"
-                "**What's the one thing about yourself right now that you want to change?**"
-            )
-            self.update_user_data(user_id, {
-                'first_name': first_name,
-                'started_at': str(datetime.now()),
-                'exchange_count': 0
-            })
-            return CONVERSATION
+            if question_count < 10:
+                next_question = self.mindset_questions[question_count]
+                await update.message.reply_text(next_question)
+                return PRE_PURCHASE_QUESTION
+            else:
+                await update.message.reply_text(
+                    "Looks like you're ready for the next step. Check the message below 👇"
+                )
+                return WAITING_FOR_PURCHASE
         
-        return CONVERSATION
-
-    async def handle_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        await update.message.reply_text(
+            f"Hey {first_name}! 👋\n\n"
+            "I'm glad you're here. I want to ask you something real:\n\n"
+            "**What's the one thing about yourself right now that you want to change?**"
+        )
+        
+        self.update_user_data(user_id, {
+            'first_name': first_name,
+            'started_at': str(datetime.now()),
+            'question_count': 0,
+            'responses': []
+        })
+        
+        return PRE_PURCHASE_QUESTION
+    
+    async def pre_purchase_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text
         
         user_data = self.get_user_data(user_id)
-        exchange_count = context.user_data.get('exchange_count', user_data.get('exchange_count', 0))
-        at_sales_pitch = context.user_data.get('at_sales_pitch', False)
+        question_count = user_data.get('question_count', 0)
+        responses = user_data.get('responses', [])
         
-        if not user_data.get('initial_concern'):
-            concern_type = self.adapt_response(user_response)
-            self.update_user_data(user_id, {
-                'initial_concern': user_response,
-                'concern_type': concern_type,
-                'exchange_count': 0,
-                'user_responses': [user_response]
-            })
-            context.user_data['concern_type'] = concern_type
-            context.user_data['exchange_count'] = 0
-            context.user_data['at_sales_pitch'] = False
-            
-            next_question = self.question_sequences.get(concern_type, self.question_sequences['general'])[0]
+        responses.append(user_response)
+        question_count += 1
+        
+        self.update_user_data(user_id, {
+            'question_count': question_count,
+            'responses': responses
+        })
+        
+        if question_count < 10:
+            next_question = self.mindset_questions[question_count]
             await update.message.reply_text(next_question)
-            return CONVERSATION
-        
-        if at_sales_pitch:
-            answer = (
-                f"Great question. Here's the thing: most people know WHAT to do. "
-                f"They just can't make themselves do it consistently.\n\n"
-                f"This blueprint isn't about adding more to your plate. It's about rewiring the operating system "
-                f"so doing it becomes automatic.\n\n"
-                f"That's why the check-ins matter—I keep you accountable to the *system*, not willpower.\n\n"
-                f"Does that clarify it?"
-            )
-            await update.message.reply_text(answer)
-            
-            keyboard = [
-                [InlineKeyboardButton("🔥 Okay, I'm in", callback_data="show_payment")],
-                [InlineKeyboardButton("Need to think", callback_data="think_about_it")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "What do you want to do?",
-                reply_markup=reply_markup
-            )
-            return PRODUCT_INTRO
-        
-        exchange_count += 1
-        context.user_data['exchange_count'] = exchange_count
-        
-        user_responses = user_data.get('user_responses', [])
-        user_responses.append(user_response)
-        self.update_user_data(user_id, {'user_responses': user_responses, 'exchange_count': exchange_count})
-        
-        if exchange_count < 10:
-            concern_type = context.user_data.get('concern_type', user_data.get('concern_type', 'general'))
-            questions = self.question_sequences.get(concern_type, self.question_sequences['general'])
-            
-            if exchange_count < len(questions):
-                next_question = questions[exchange_count]
-                await update.message.reply_text(next_question)
-            else:
-                last_question = questions[-1]
-                await update.message.reply_text(last_question)
-            
-            return CONVERSATION
+            return PRE_PURCHASE_QUESTION
         else:
-            context.user_data['at_sales_pitch'] = True
-            reply = (
+            sales_pitch = (
                 f"Okay {first_name}, I've learned a lot about where you are.\n\n"
                 f"Here's what's clear to me: your challenge isn't about trying harder or knowing more.\n\n"
-                f"It's about having the right framework—a system that rewires how you operate at the deepest level.\n\n"
-                f"I've built exactly that. It's called **'Unleash Your Ultimate Mindset'**—a complete blueprint that addresses every friction point we just discussed.\n\n"
-                f"🔹 Unshakeable self-belief (even when doubt screams)\n"
-                f"🔹 Systems that make procrastination impossible\n"
-                f"🔹 Turning failure into your fastest teacher\n"
-                f"🔹 Making success feel inevitable, not exhausting\n"
-                f"🔹 3-Day check-ins with me for accountability\n\n"
+                f"It's about having the right **framework**—a system that rewires how you operate at the deepest level.\n\n"
+                f"I've built exactly that. It's called **'Unleash Your Ultimate Mindset'**—a complete blueprint that turns insight into unshakeable action.\n\n"
+                f"🔹 Build unshakeable self-belief (even when doubt screams)\n"
+                f"🔹 Create systems that make procrastination impossible\n"
+                f"🔹 Turn failure into your fastest teacher\n"
+                f"🔹 Make success feel inevitable, not exhausting\n"
+                f"🔹 Get 3-day check-ins with me for accountability\n\n"
                 f"**Investment:** GHS 75 ($6.85) — less than two coffees.\n\n"
-                f"Ready to actually change this?"
+                f"This changes everything if you're ready."
             )
             
             keyboard = [
-                [InlineKeyboardButton("🔥 Yes, let's go", callback_data="show_payment")],
+                [InlineKeyboardButton("🔥 Yes, I'm ready", callback_data="show_payment")],
                 [InlineKeyboardButton("I have one more question", callback_data="ask_question")],
-                [InlineKeyboardButton("Need time to think", callback_data="think_about_it")]
+                [InlineKeyboardButton("Let me think about it", callback_data="think_about_it")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(reply, reply_markup=reply_markup)
-            return PRODUCT_INTRO
-        
-        return CONVERSATION
-
+            await update.message.reply_text(sales_pitch, reply_markup=reply_markup)
+            
+            return WAITING_FOR_PURCHASE
     
-    async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def waiting_for_purchase(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         query = update.callback_query
         await query.answer()
         
@@ -313,61 +167,47 @@ class MindsetBot:
                 "1️⃣ Complete payment (GHS 75)\n"
                 "2️⃣ Get the PDF in your email instantly\n"
                 "3️⃣ Read through it at your pace\n"
-                "4️⃣ Click the link at the end to come back\n"
-                "5️⃣ We build YOUR custom system\n\n"
+                "4️⃣ Click the link at the end of the PDF\n"
+                "5️⃣ We build YOUR custom mindset system\n\n"
                 "Let's go. See you on the other side!"
             )
             await query.edit_message_text(payment_message)
             
-            keyboard = [[InlineKeyboardButton("✅ I've Paid", callback_data="confirm_payment")]]
+            keyboard = [[InlineKeyboardButton("✅ I've Paid & Have the PDF", callback_data="confirm_payment")]]
             await query.message.reply_text(
-                "Once you've completed payment, tap below:",
+                "Once you've completed payment and have the PDF, tap below:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            return PRODUCT_INTRO
-            
+            return WAITING_FOR_PURCHASE
+        
         elif query.data == "ask_question":
-            await query.edit_message_text(
-                "What's your question? I'll answer, then we'll move forward."
-            )
-            return CONVERSATION
-            
+            await query.edit_message_text("What's your question? I'll answer, then we move forward.")
+            return PRE_PURCHASE_QUESTION
+        
         elif query.data == "think_about_it":
             await query.edit_message_text(
                 f"No rush, {first_name}. Take your time.\n\n"
                 "Type /start whenever you're ready to continue.\n\n"
-                "**Real talk:** If nothing changes, where are you in 6 months? 🤔"
+                "**Real talk:** If nothing changes, where are you in 6 months?"
             )
             return ConversationHandler.END
-            
+        
         elif query.data == "confirm_payment":
             self.update_user_data(user_id, {
-                'purchased': True, 
+                'purchased': True,
                 'purchase_date': str(datetime.now())
             })
             
             await query.edit_message_text(
                 f"🎉 You're in, {first_name}!\n\n"
                 "Check your email for the PDF. Read it whenever you're ready—no rush.\n\n"
-                "When you're done, use the link at the end of the PDF to come back (or type /done).\n\n"
-                "That's when we build your system. 💪"
+                "When you're done, use the link at the end of the PDF (or type /done).\n\n"
+                "That's when we build YOUR system. 💪"
             )
-            
             return ConversationHandler.END
         
-        elif query.data == "done_reading":
-            await query.edit_message_text(
-                f"Welcome back, {first_name}! 🙌\n\n"
-                "Let's talk about what you just read."
-            )
-            await query.message.reply_text(
-                "**What part of the PDF hit home the most?**\n\n"
-                "Tell me what resonated with you."
-            )
-            return PDF_FEEDBACK
-        
-        return PRODUCT_INTRO
-
+        return WAITING_FOR_PURCHASE
+    
     async def done_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
@@ -385,9 +225,9 @@ class MindsetBot:
             "So you finished the PDF. Nice.\n\n"
             "**What part hit you the hardest?** What made you go 'yeah, that's exactly me'?"
         )
-        return PDF_FEEDBACK
+        return POST_PURCHASE_FEEDBACK
     
-    async def pdf_feedback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def post_purchase_feedback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text
@@ -409,21 +249,19 @@ class MindsetBot:
         
         await update.message.reply_text(reply)
         return FOCUS_AREA
-
+    
     async def focus_area(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         choice = update.message.text.upper().strip()
         
-        self.update_user_data(user_id, {'focus_area': choice})
-        
         exercises = {
             'A': (
-                f"**🎯 North Star Exercise**\n\n"
-                f"Clarity is everything. If you're climbing the wrong ladder, speed doesn't matter.\n\n"
-                f"Complete this:\n"
-                f"'In 5 years, I want to be known as someone who...'\n\n"
-                f"Send me your answer. Be honest—does this *excite* you, or are you trying to impress someone?"
+                "**🎯 North Star Exercise**\n\n"
+                "Clarity is everything. If you're climbing the wrong ladder, speed doesn't matter.\n\n"
+                "Complete this:\n"
+                "'In 5 years, I want to be known as someone who...'\n\n"
+                "Send me your answer. Be honest—does this *excite* you, or are you trying to impress someone?"
             ),
             'B': (
                 f"**🧠 Evidence Inventory**\n\n"
@@ -435,37 +273,39 @@ class MindsetBot:
                 f"Send me both. We're going to demolish that lie with facts."
             ),
             'C': (
-                f"**🔬 MVE Challenge**\n\n"
-                f"Failure is data. Let's make it work for you.\n\n"
-                f"Pick ONE goal you've been avoiding.\n\n"
-                f"Answer:\n"
-                f"1. What's the smallest step in the next 2 hours?\n"
-                f"2. What's the worst that happens if it fails?\n"
-                f"3. What do you learn even if it fails?\n\n"
-                f"Send me your goal + MVE. Let's run the experiment."
+                "**🔬 MVE Challenge**\n\n"
+                "Failure is data. Let's make it work for you.\n\n"
+                "Pick ONE goal you've been avoiding.\n\n"
+                "Answer:\n"
+                "1. What's the smallest step in the next 2 hours?\n"
+                "2. What's the worst that happens if it fails?\n"
+                "3. What do you learn even if it fails?\n\n"
+                "Send me your goal + MVE. Let's run the experiment."
             ),
             'D': (
-                f"**⚙️ If-Then Builder**\n\n"
-                f"Systems beat willpower every time.\n\n"
-                f"Think of ONE action you keep 'forgetting'.\n\n"
-                f"Complete this:\n"
-                f"'If [trigger], then I will [specific action].'\n\n"
-                f"Example: 'If I pour coffee, then I journal for 5 min.'\n\n"
-                f"What's YOUR If-Then? Send it."
+                "**⚙️ If-Then Builder**\n\n"
+                "Systems beat willpower every time.\n\n"
+                "Think of ONE action you keep 'forgetting'.\n\n"
+                "Complete this:\n"
+                "'If [trigger], then I will [specific action].'\n\n"
+                "Example: 'If I pour coffee, then I journal for 5 min.'\n\n"
+                "What's YOUR If-Then? Send it."
             ),
             'E': (
-                f"**🔥 Small Win Ritual**\n\n"
-                f"Momentum comes from stacking tiny wins.\n\n"
-                f"1. Pick the SMALLEST action you can do today\n"
-                f"   (Not 'run 5 miles'—think 'put on shoes')\n\n"
-                f"2. After doing it, say:\n"
-                f"   'I did what I said. That's who I am.'\n\n"
-                f"What's your small win TODAY? Tell me now."
+                "**🔥 Small Win Ritual**\n\n"
+                "Momentum comes from stacking tiny wins.\n\n"
+                "1. Pick the SMALLEST action you can do today\n"
+                "   (Not 'run 5 miles'—think 'put on shoes')\n\n"
+                "2. After doing it, say:\n"
+                "   'I did what I said. That's who I am.'\n\n"
+                "What's your small win TODAY? Tell me now."
             )
         }
         
         if choice in exercises:
-            reply = exercises[choice]
+            self.update_user_data(user_id, {'focus_area': choice})
+            await update.message.reply_text(exercises[choice])
+            return SYSTEM_BUILDING
         else:
             reply = (
                 "Got it. Just reply with the letter:\n\n"
@@ -474,10 +314,7 @@ class MindsetBot:
             )
             await update.message.reply_text(reply)
             return FOCUS_AREA
-        
-        await update.message.reply_text(reply)
-        return SYSTEM_BUILDING
-
+    
     async def system_building(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
@@ -519,7 +356,7 @@ class MindsetBot:
         )
         
         return ConversationHandler.END
-
+    
     async def send_checkin(self, context: ContextTypes.DEFAULT_TYPE):
         job_data = context.job.data
         user_id = job_data['user_id']
@@ -576,7 +413,7 @@ class MindsetBot:
             data=job_data,
             name=f"checkin_{user_id}"
         )
-
+    
     async def checkin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
@@ -598,7 +435,7 @@ class MindsetBot:
             "I'm here."
         )
         return CHECKIN_RESPONSE
-
+    
     async def checkin_response(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
@@ -643,7 +480,7 @@ class MindsetBot:
         self.update_user_data(user_id, {'last_interaction': str(datetime.now())})
         
         return ConversationHandler.END
-
+    
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         help_text = (
             "**Commands:**\n\n"
@@ -656,7 +493,7 @@ class MindsetBot:
         )
         await update.message.reply_text(help_text)
         return ConversationHandler.END
-
+    
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         first_name = update.effective_user.first_name
         await update.message.reply_text(
@@ -678,15 +515,25 @@ def main():
             CommandHandler('start', bot.start),
         ],
         states={
-            CONVERSATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_conversation)],
-            PRODUCT_INTRO: [
-                CallbackQueryHandler(bot.button_handler),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_conversation)
+            PRE_PURCHASE_QUESTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.pre_purchase_question)
             ],
-            PDF_FEEDBACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, bot.pdf_feedback)],
-            FOCUS_AREA: [MessageHandler(filters.TEXT & ~filters.COMMAND, bot.focus_area)],
-            SYSTEM_BUILDING: [MessageHandler(filters.TEXT & ~filters.COMMAND, bot.system_building)],
-            CHECKIN_RESPONSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, bot.checkin_response)],
+            WAITING_FOR_PURCHASE: [
+                CallbackQueryHandler(bot.waiting_for_purchase),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.pre_purchase_question)
+            ],
+            POST_PURCHASE_FEEDBACK: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.post_purchase_feedback)
+            ],
+            FOCUS_AREA: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.focus_area)
+            ],
+            SYSTEM_BUILDING: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.system_building)
+            ],
+            CHECKIN_RESPONSE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, bot.checkin_response)
+            ],
         },
         fallbacks=[
             CommandHandler('cancel', bot.cancel),
@@ -699,11 +546,10 @@ def main():
     
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler('help', bot.help_command))
-    application.add_handler(CallbackQueryHandler(bot.button_handler))
     
     print("🚀 Mindset Bot Running")
-    print("✅ Adaptive mentor flow active")
-    print("✅ 3-day check-ins enabled")
+    print("✅ 10-question mindset exchange active")
+    print("✅ Clear pre-purchase flow")
     print("✅ Post-purchase support ready")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
