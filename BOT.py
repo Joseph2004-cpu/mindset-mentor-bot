@@ -93,7 +93,7 @@ class MindsetBot:
         return MSG_1
 
     async def message_1(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Message 2: Empathetic reflection"""
+        """Message 2: Empathetic reflection - SHORT and DYNAMIC"""
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text
@@ -103,67 +103,48 @@ class MindsetBot:
         # Dynamic response based on keywords
         response_lower = user_response.lower()
         
-        if any(word in response_lower for word in ['stuck', 'stagnant', 'plateau', 'same place']):
-            reply = (
-                f"That stuck feeling is so frustrating, {first_name}. Like you're putting in effort "
-                "but the needle isn't moving, right?\n\n"
-                "Here's what I'm curious about—**when you think about being stuck, does it feel like:**\n"
-                "• You don't know *what* to do next, or\n"
-                "• You know what to do but can't seem to *make yourself* do it?\n\n"
-                "(This difference matters more than you might think.)"
-            )
-        elif any(word in response_lower for word in ['motivation', 'motivate', 'discipline', 'willpower', 'lazy']):
-            reply = (
-                f"Okay, {first_name}, I'm going to tell you something that might surprise you:\n\n"
-                "The fact that you're blaming motivation or discipline? That's actually a *symptom*, not the problem.\n\n"
-                "**Real talk:** Have you noticed that you *do* have discipline in some areas of your life, "
-                "but it completely disappears in others? Like maybe you're super consistent at work but can't stick "
-                "to personal goals?\n\n"
-                "What's an example of something you *are* consistent with?"
-            )
-        elif any(word in response_lower for word in ['goal', 'achieve', 'success', 'accomplish', 'want']):
-            reply = (
-                f"I love that you have goals, {first_name}. That's already ahead of most people.\n\n"
-                "But let me ask you something that might feel uncomfortable:\n\n"
-                "**When you close your eyes and imagine achieving that goal—do you feel excited, or do you feel pressure?**\n\n"
-                "(Be honest. There's no wrong answer here.)"
-            )
-        elif any(word in response_lower for word in ['start', 'begin', 'procrastinat', 'delay']):
-            reply = (
-                f"That starting problem is real, {first_name}. It's like there's an invisible force field "
-                "around the thing you need to do.\n\n"
-                "**Quick question:** When you *do* finally start something, do you usually finish it? "
-                "Or does the resistance show up at every stage?\n\n"
-                "(I'm trying to figure out if this is a *starting* problem or a *sustaining* problem.)"
-            )
-        elif any(word in response_lower for word in ['fail', 'failure', 'afraid', 'fear', 'scared']):
-            reply = (
-                f"{first_name}, that fear of failing? It means you actually care. That's not weakness—that's proof you're invested.\n\n"
-                "But here's what I want to know:\n\n"
-                "**What would you attempt if you *knew* you wouldn't be judged for failing?**\n\n"
-                "(Dream big for a second. What's the thing you'd go for?)"
-            )
-        elif any(word in response_lower for word in ['don\'t know', 'unclear', 'lost', 'confused', 'direction']):
-            reply = (
-                f"That uncertainty is tough, {first_name}. It's hard to move forward when you're not sure "
-                "which direction is even *forward*.\n\n"
-                "**Let me ask this differently:** If you had absolute clarity on what to do next, "
-                "do you think you'd actually do it? Or would something else get in the way?\n\n"
-                "(I'm asking because sometimes 'I don't know what to do' is actually protecting us from something else.)"
-            )
+        if any(word in response_lower for word in ['stuck', 'stagnant', 'plateau', 'same place', 'not moving']):
+            reply = f"That stuck feeling is frustrating. You're putting in effort but nothing's moving, right?\n\nQuick question: Do you not know *what* to do next, or do you know but can't make yourself do it?"
+        
+        elif any(word in response_lower for word in ['motivation', 'motivate', 'discipline', 'willpower', 'lazy', 'unmotivated']):
+            reply = f"Here's the thing, {first_name}—motivation isn't your real problem.\n\nBet you're super consistent in *some* areas but totally inconsistent in others. What's one thing you're already good at showing up for?"
+        
+        elif any(word in response_lower for word in ['goal', 'achieve', 'success', 'accomplish', 'want', 'dream']):
+            reply = f"Love that you have goals.\n\nBut real talk: when you imagine achieving it, do you feel *excited* or *pressured*?"
+        
+        elif any(word in response_lower for word in ['start', 'begin', 'procrastinat', 'delay', 'later', 'tomorrow']):
+            reply = f"The starting problem. Classic.\n\nWhen you *do* start something, do you finish it? Or does resistance show up at every stage?"
+        
+        elif any(word in response_lower for word in ['fail', 'failure', 'afraid', 'fear', 'scared', 'worry', 'anxious']):
+            reply = f"That fear means you care, {first_name}. That's not weakness.\n\nWhat would you try if you knew no one would judge you for failing?"
+        
+        elif any(word in response_lower for word in ['don\'t know', 'unclear', 'lost', 'confused', 'direction', 'what to do']):
+            reply = f"Not knowing what to do is rough.\n\nBut honest question: If you *did* know exactly what to do, would you actually do it? Or would something else get in the way?"
+        
+        elif any(word in response_lower for word in ['money', 'income', 'business', 'career', 'job', 'financial']):
+            reply = f"Money goals. I get it.\n\nHere's what matters though: Are you chasing the money itself, or what you think the money will give you?"
+        
+        elif any(word in response_lower for word in ['relationship', 'partner', 'marriage', 'dating', 'people']):
+            reply = f"Relationships are tough when you're not solid with yourself first.\n\nDo you feel like you're trying to fix the relationship, or are you trying to fix how *you* show up?"
+        
+        elif any(word in response_lower for word in ['health', 'weight', 'fitness', 'exercise', 'gym', 'diet']):
+            reply = f"Health goals usually aren't about the gym or the diet, {first_name}.\n\nWhat's *really* behind wanting this change? What are you hoping will be different?"
+        
+        elif any(word in response_lower for word in ['time', 'busy', 'overwhelm', 'too much', 'stress']):
+            reply = f"Too much on your plate?\n\nBe honest: Are you actually too busy, or are you busy with the *wrong* things?"
+        
+        elif any(word in response_lower for word in ['confident', 'self-esteem', 'doubt', 'not good enough', 'imposter']):
+            reply = f"That self-doubt voice is loud, huh?\n\nWhat's one thing you *know* you're good at, even if you downplay it?"
+        
         else:
-            reply = (
-                f"Thanks for sharing that with me, {first_name}. I can tell you've been thinking about this.\n\n"
-                "**Here's what I'm hearing:** You want something more. A better version of how things are going right now.\n\n"
-                "If I asked you to describe the *version of yourself* who has figured this out—"
-                "what's different about that person compared to who you are today?"
-            )
+            # Catch-all that uses their exact words
+            reply = f"Got it. So you're dealing with: '{user_response[:50]}...'\n\nIf the version of you who *solved* this was sitting here, what would they say is different about how they think?"
         
         await update.message.reply_text(reply)
         return MSG_2
 
     async def message_2(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Message 3: Deeper diagnosis"""
+        """Message 3: Deeper diagnosis - SHORT"""
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text
@@ -171,21 +152,17 @@ class MindsetBot:
         self.update_user_data(user_id, {'msg_2_response': user_response})
         
         reply = (
-            f"That's really insightful, {first_name}. You're already seeing patterns most people miss.\n\n"
-            "Here's something I've noticed working with people like you:\n\n"
-            "Most struggles aren't about *what* you're doing. They're about the **invisible operating system** "
-            "running in the background—your mindset.\n\n"
-            "**Think of it like this:** You can have the best apps (goals, plans, strategies), "
-            "but if your phone's OS is outdated or has bugs, nothing runs smoothly.\n\n"
-            "**Quick check:** Do you ever feel like you're sabotaging yourself? Like one part of you wants "
-            "to succeed but another part keeps hitting the brakes?"
+            f"That makes sense.\n\n"
+            f"Here's the pattern I see: most struggles aren't about *what* you're doing. "
+            f"They're about the operating system running in the background—your mindset.\n\n"
+            f"Ever feel like you're sabotaging yourself? Like part of you wants success but another part hits the brakes?"
         )
         
         await update.message.reply_text(reply)
         return MSG_3
 
     async def message_3(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Message 4: Pattern recognition"""
+        """Message 4: Pattern recognition - SHORTER"""
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text
@@ -193,28 +170,17 @@ class MindsetBot:
         self.update_user_data(user_id, {'msg_3_response': user_response})
         
         reply = (
-            f"Exactly. That internal conflict? That's the signal, {first_name}.\n\n"
-            "Most people think the solution is to 'push harder' or 'stay motivated.' But that's like trying "
-            "to run better software on broken hardware—it just burns you out faster.\n\n"
-            "**The real fix?** You need to update the operating system itself.\n\n"
-            "Here's what that looks like in practice:\n\n"
-            "**Instead of:**\n"
-            "❌ Constantly fighting yourself\n"
-            "❌ Needing motivation to start\n"
-            "❌ Feeling guilty when you 'fail'\n\n"
-            "**You get to:**\n"
-            "✅ Move forward automatically\n"
-            "✅ Trust yourself to follow through\n"
-            "✅ Use setbacks as data, not disasters\n\n"
-            "**Honest question:** If you could flip a switch and wake up with that kind of mindset tomorrow, "
-            "what would you do differently?"
+            f"Right? That internal conflict is the signal.\n\n"
+            f"Most people try to 'push harder' or 'stay motivated.' But that just burns you out faster.\n\n"
+            f"The real fix? Update the operating system itself.\n\n"
+            f"If you could flip a switch and wake up with an unstoppable mindset tomorrow, what would you do differently?"
         )
         
         await update.message.reply_text(reply)
         return MSG_4
 
     async def message_4(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Message 5: Bridge to solution"""
+        """Message 5: Bridge to solution - CONCISE"""
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text
@@ -222,22 +188,21 @@ class MindsetBot:
         self.update_user_data(user_id, {'msg_4_response': user_response})
         
         reply = (
-            f"I love that vision, {first_name}. And here's the thing—it's not a fantasy. It's actually engineerable.\n\n"
-            "The difference between where you are now and where you want to be isn't some magical personality trait. "
-            "It's a **systematic rewiring** of five specific areas:\n\n"
-            "**1. Clarity** → Knowing exactly who you need to *be* (not just what you want to *have*)\n"
-            "**2. Belief** → Catching and replacing the lies your brain tells you\n"
-            "**3. Failure** → Using setbacks as fuel instead of letting them stop you\n"
-            "**4. Systems** → Designing your environment so success is automatic\n"
-            "**5. Momentum** → Building compound progress that doesn't rely on motivation\n\n"
-            "**Real talk:** Does this feel like what's been missing for you?"
+            f"That vision is possible, {first_name}. And it's engineerable.\n\n"
+            f"The gap between where you are and where you want to be is a systematic rewiring of 5 areas:\n\n"
+            f"1. **Clarity** → Who you need to *be*\n"
+            f"2. **Belief** → Catching the lies your brain tells you\n"
+            f"3. **Failure** → Using it as fuel, not a stop sign\n"
+            f"4. **Systems** → Making success automatic\n"
+            f"5. **Momentum** → Building unstoppable progress\n\n"
+            f"Does this feel like what's been missing?"
         )
         
         await update.message.reply_text(reply)
         return MSG_5
 
     async def message_5(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Message 6: Validation and specificity"""
+        """Message 6: Validation and specificity - PUNCHY"""
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text
@@ -245,25 +210,22 @@ class MindsetBot:
         self.update_user_data(user_id, {'msg_5_response': user_response})
         
         reply = (
-            f"Right? When you see it laid out like that, it suddenly makes sense why 'just be positive' never worked.\n\n"
-            "So here's where I come in, {first_name}.\n\n"
-            "I've been helping people rewire this exact operating system using a complete blueprint called "
-            "**'Unleash Your Ultimate Mindset.'**\n\n"
-            "It's not fluff. It's not another 'visualize your dreams' book. It's the **engineering manual** for:\n\n"
-            "🔹 Building unshakeable self-belief (even when your brain screams 'you can't')\n"
-            "🔹 Creating systems that make procrastination literally impossible\n"
-            "🔹 Turning failure into your fastest teacher\n"
-            "🔹 Making success feel inevitable instead of exhausting\n\n"
-            "**And the best part?** After you read it, **I personally help you build your custom system.** "
-            "You're not doing this alone.\n\n"
-            "**Quick question:** If you had this kind of system in place 3 months from now, where would you be?"
+            f"Right? Suddenly 'just be positive' makes no sense.\n\n"
+            f"So here's where I come in.\n\n"
+            f"I've built a complete blueprint called **'Unleash Your Ultimate Mindset'** that rewires this exact system:\n\n"
+            f"🔹 Unshakeable self-belief (even when doubt screams)\n"
+            f"🔹 Systems that make procrastination impossible\n"
+            f"🔹 Turning failure into your fastest teacher\n"
+            f"🔹 Making success feel inevitable, not exhausting\n\n"
+            f"**Plus,** after you read it, I personally help you build your custom system. You're not alone in this.\n\n"
+            f"If you had this in place 3 months from now, where would you be?"
         )
         
         await update.message.reply_text(reply)
         return MSG_6
 
     async def message_6(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Message 7: Creating desire"""
+        """Message 7: Creating desire - TIGHT"""
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text
@@ -271,62 +233,56 @@ class MindsetBot:
         self.update_user_data(user_id, {'msg_6_response': user_response})
         
         reply = (
-            f"That's the version of you that already exists, {first_name}. You just need the right framework to unlock it.\n\n"
-            "**Here's exactly what you get:**\n\n"
-            "📖 **The Complete Blueprint** — The 5-step system to rewire your mindset from the ground up\n\n"
-            "🧠 **Actionable Frameworks:**\n"
-            "• The Evidence Inventory (demolish limiting beliefs)\n"
-            "• MVE Method (fail small, learn fast)\n"
-            "• If-Then Planning (make execution automatic)\n"
-            "• Quarterly Mindset Review (sustain long-term growth)\n\n"
-            "🤝 **Ongoing Support** — After you finish reading, I'll help you build your personalized system. "
-            "We'll work through your specific situation together.\n\n"
-            "📲 **3-Day Check-ins** — I'll check in with you every 3 days to keep you on track, "
-            "troubleshoot obstacles, and celebrate wins.\n\n"
-            "**Investment:** GHS 75 ($6.85)\n\n"
-            "That's less than two coffees. For a complete mindset overhaul + personal guidance.\n\n"
-            "**Be honest—does this feel like what you need right now?**"
+            f"That version of you already exists, {first_name}. You just need the framework.\n\n"
+            f"**Here's what you get:**\n\n"
+            f"📖 The Complete 5-Step Blueprint\n"
+            f"🧠 Actionable Frameworks (Evidence Inventory, MVE Method, If-Then Planning)\n"
+            f"🤝 Personal Support — I help you build your system after you read\n"
+            f"📲 3-Day Check-ins — I keep you on track every 3 days\n\n"
+            f"**Investment:** GHS 75 ($6.85)\n\n"
+            f"Less than two coffees for a complete mindset overhaul + ongoing guidance.\n\n"
+            f"Does this feel like what you need?"
         )
         
         await update.message.reply_text(reply)
         return MSG_7
 
     async def message_7(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Message 8: Soft objection handling"""
+        """Message 8: Soft objection handling - NATURAL"""
         user_id = update.effective_user.id
         first_name = update.effective_user.first_name
         user_response = update.message.text.lower()
         
         self.update_user_data(user_id, {'msg_7_response': user_response})
         
-        # Detect hesitation or affirmation
-        if any(word in user_response for word in ['yes', 'yeah', 'definitely', 'absolutely', 'sure', 'ready']):
+        # Detect affirmation or hesitation
+        if any(word in user_response for word in ['yes', 'yeah', 'definitely', 'absolutely', 'sure', 'ready', 'let\'s do', 'sounds good']):
             reply = (
-                f"Love that energy, {first_name}! 🔥\n\n"
-                "Alright, let's lock this in. Here's what happens next:\n\n"
-                "**Step 1:** Tap the payment link below\n"
-                "**Step 2:** You'll get instant access to the PDF via email\n"
-                "**Step 3:** Read through it at your own pace\n"
-                "**Step 4:** Click the link at the end of the PDF to come back here\n"
-                "**Step 5:** We build your custom system together\n\n"
-                "You're about to shift how you operate. Let's do this. 👇"
+                f"Let's go, {first_name}! 🔥\n\n"
+                f"**Here's what happens:**\n"
+                f"1. Tap the link below\n"
+                f"2. Get instant PDF access via email\n"
+                f"3. Read it\n"
+                f"4. Click the link at the end to come back\n"
+                f"5. We build your custom system\n\n"
+                f"Ready? 👇"
             )
         else:
             reply = (
-                f"I get it, {first_name}. Big decisions deserve thought.\n\n"
-                "**Let me ask you this:** What's your hesitation right now? Is it:\n\n"
-                "A) 'I'm not sure this will work for *me*'\n"
-                "B) 'I've tried stuff like this before and it didn't stick'\n"
-                "C) 'Not sure if now is the right time'\n"
-                "D) Something else\n\n"
-                "Just type the letter (or tell me what's on your mind). I want to make sure this is actually right for you."
+                f"Fair enough, {first_name}.\n\n"
+                f"What's the hesitation? Is it:\n\n"
+                f"A) Not sure it'll work for me\n"
+                f"B) I've tried stuff before\n"
+                f"C) Timing feels off\n"
+                f"D) Something else\n\n"
+                f"Just tell me what's on your mind."
             )
             await update.message.reply_text(reply)
             return MSG_8
         
         keyboard = [
-            [InlineKeyboardButton("🔥 Get Instant Access Now", callback_data="show_payment")],
-            [InlineKeyboardButton("Wait, I have a question", callback_data="ask_question")]
+            [InlineKeyboardButton("🔥 Get Instant Access", callback_data="show_payment")],
+            [InlineKeyboardButton("I have a question", callback_data="ask_question")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
