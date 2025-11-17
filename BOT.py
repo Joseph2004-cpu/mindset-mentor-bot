@@ -13,12 +13,7 @@ from telegram.ext import (
 )
 import json
 
-PRE_PURCHASE_QUESTION = range(1)
-WAITING_FOR_PURCHASE = range(1)
-POST_PURCHASE_FEEDBACK = range(1)
-FOCUS_AREA = range(1)
-SYSTEM_BUILDING = range(1)
-CHECKIN_RESPONSE = range(1)
+PRE_PURCHASE_QUESTION, WAITING_FOR_PURCHASE, POST_PURCHASE_FEEDBACK, FOCUS_AREA, SYSTEM_BUILDING, CHECKIN_RESPONSE = range(6)
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
