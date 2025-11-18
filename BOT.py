@@ -3,15 +3,15 @@ import os
 import pickle
 from datetime import datetime
 
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, 
     ConversationHandler, ContextTypes, filters
 )
 
 # --- CONFIGURATION ---
-# Replace this with your actual Token or set it as an environment variable
-TOKEN = os.getenv("8342995076:AAH9TosXOwx_1KF3Kb5TwrKEcVlWqUmPEBI", "8342995076:AAH9TosXOwx_1KF3Kb5TwrKEcVlWqUmPEBI")
+# IMPORTANT: Replace "YOUR_TOKEN_HERE" with your actual Telegram Bot Token
+TOKEN = os.getenv("8342995076:AAF-oiY5mOqp-Jjf9dy78xXlC7x6efs64_0", "8342995076:AAF-oiY5mOqp-Jjf9dy78xXlC7x6efs64_0")
 DATA_FILE = "user_data.pkl"
 
 # --- LOGGING ---
@@ -53,13 +53,21 @@ DAILY_EXERCISES = [
 # --- PERSISTENCE HELPERS ---
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'rb') as f:
-            return pickle.load(f)
+        try:
+            with open(DATA_FILE, 'rb') as f:
+                return pickle.load(f)
+        except Exception as e:
+            logger.error(f"Error loading user data from pickle: {e}. Starting fresh.", exc_info=True)
+            return {}
     return {}
 
 def save_data(data):
-    with open(DATA_FILE, 'wb') as f:
-        pickle.dump(data, f)
+    try:
+        with open(DATA_FILE, 'wb') as f:
+            pickle.dump(data, f)
+    except Exception as e:
+        logger.error(f"Error saving user data to pickle: {e}", exc_info=True)
+
 
 # Global in-memory store, loaded on startup
 user_data_store = load_data()
@@ -80,13 +88,13 @@ def get_user_db(user_id):
 def save_user_db():
     save_data(user_data_store)
 
-# --- MAIN FLOW HANDLERS ---
+# --- CORE HANDLERS ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     userdata = get_user_db(user_id)
     
-    if not userdata["pdf_read_confirmed"]:
+    if not userdata.get("pdf_read_confirmed"):
         await update.message.reply_text(
             "Welcome! Have you finished reading the mindset blueprint PDF? "
             "Please type 'done' when you've completed it to start your journey."
@@ -94,7 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CONFIRM_PDF_READ
     else:
         await update.message.reply_text(
-            f"Welcome back! You are on Day {userdata['current_day']}.\n"
+            f"Welcome back! You are on Day {userdata.get('current_day', 1)}.\n"
             "Type 'next' to get today's exercise, or use the menu commands (/help)."
         )
         return WAITING_FOR_NEXT
@@ -121,17 +129,14 @@ async def send_next_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE)
     userdata = get_user_db(user_id)
     day = userdata["current_day"]
 
-    # Check if program is finished
     if day > len(DAILY_EXERCISES):
         await update.message.reply_text(
             "🎉 Congrats on completing the 30-day program!\n"
-            "You can now use the tools indefinitely:\n"
-            "/evidence, /experiment, /ifthen, /smallwin"
+            "You can now use the tools indefinitely: /evidence, /experiment, /ifthen, /smallwin, /review."
         )
         return WAITING_FOR_NEXT
 
-    # Get exercise text (adjusting for 0-index)
-    exercise_text = DAILY_EXERCISES[day - 1] if (day - 1) < len(DAILY_EXERCISES) else "Review your notes."
+    exercise_text = DAILY_EXERCISES[day - 1]
     
     await update.message.reply_text(
         f"🗓 <b>Day {day} Exercise:</b>\n{exercise_text}\n\n"
@@ -150,8 +155,7 @@ async def exercise_completed(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await update.message.reply_text(
         "✅ Great work! Progress saved.\n"
-        "Come back tomorrow and type 'next' for the next step, "
-        "or explore tools via /help."
+        "Type 'next' for the next step, or explore tools via /help."
     )
     return WAITING_FOR_NEXT
 
@@ -176,8 +180,8 @@ async def evidence_rewrite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     userdata = get_user_db(user_id)
     
     entry = {
-        "belief": context.user_data['limiting_belief'],
-        "evidence": context.user_data['belief_evidence'],
+        "belief": context.user_data.get('limiting_belief'),
+        "evidence": context.user_data.get('belief_evidence'),
         "rewrite": update.message.text,
         "date": datetime.now().isoformat()
     }
@@ -206,8 +210,8 @@ async def mve_learnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     userdata = get_user_db(user_id)
     
     entry = {
-        "goal": context.user_data['mve_goal'],
-        "worst": context.user_data['mve_worst'],
+        "goal": context.user_data.get('mve_goal'),
+        "worst": context.user_data.get('mve_worst'),
         "learning": update.message.text,
         "date": datetime.now().isoformat()
     }
@@ -265,8 +269,8 @@ async def start_quarterly_review(update: Update, context: ContextTypes.DEFAULT_T
 
 async def quarterly_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    if ";" not in text:
-        await update.message.reply_text("⚠️ Please separate your answers with semicolons (;). Try again.")
+    if text.count(";") < 3: # Need at least 3 semicolons for 4 answers
+        await update.message.reply_text("⚠️ Please provide all 4 review answers separated by semicolons (;). Try again.")
         return QUARTERLY_REVIEW
 
     user_id = update.effective_user.id
@@ -281,6 +285,8 @@ async def quarterly_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("💾 Review saved. Returning to menu.")
     return WAITING_FOR_NEXT
 
+# --- CONTROL HANDLERS (HELP, CANCEL, RESTART) ---
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>Mindset Bot Commands:</b>\n\n"
@@ -292,23 +298,55 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/experiment - Plan a failure experiment\n"
         "/ifthen - Create implementation intentions\n"
         "/smallwin - Log a daily win\n"
-        "/review - Quarterly review",
+        "/review - Quarterly review\n\n"
+        "🛑 <b>Control:</b>\n"
+        "/restart - **Wipe all progress and start from Day 1**\n"
+        "/cancel - Cancel current action",
         parse_mode='HTML'
     )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Operation cancelled. Type 'next' or use a command to restart.")
+    await update.message.reply_text("Operation cancelled. Type 'next' or use a command to continue.")
     return WAITING_FOR_NEXT
+
+async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # 1. Overwrite user data with default "Day 1" values
+    user_data_store[user_id] = {
+        "pdf_read_confirmed": False,
+        "current_day": 1,
+        "evidence_inventory": [],
+        "mve_logs": [],
+        "if_then_plans": [],
+        "small_win_log": [],
+        "quarterly_reviews": []
+    }
+    
+    # 2. Save to file immediately
+    save_user_db() 
+
+    # 3. Send confirmation
+    await update.message.reply_text(
+        "🔄 <b>System Reset.</b>\n\n"
+        "Your progress has been wiped and you are back at Day 1.\n"
+        "To begin again: Have you finished reading the mindset blueprint PDF?\n"
+        "Type 'done' to confirm.",
+        parse_mode='HTML'
+    )
+    
+    # 4. Return to the very first state
+    return CONFIRM_PDF_READ
 
 # --- MAIN SETUP ---
 def main():
     if TOKEN == "YOUR_TOKEN_HERE":
-        print("ERROR: Please put your Telegram Token in the script code or environment variables.")
+        logger.error("ERROR: Please replace 'YOUR_TOKEN_HERE' or set the TELEGRAM_BOT_TOKEN environment variable.")
         return
 
     application = ApplicationBuilder().token(TOKEN).build()
 
-    # Common tool commands that can be triggered from the menu
+    # Common tool commands that can be triggered from the WAITING_FOR_NEXT state
     tool_entry_points = [
         CommandHandler('evidence', start_evidence_inventory),
         CommandHandler('experiment', start_experiment),
@@ -323,10 +361,11 @@ def main():
             CONFIRM_PDF_READ: [
                 MessageHandler(filters.Regex(r'(?i)^done$'), confirm_pdf_read)
             ],
-            # State: Waiting for user to ask for the next exercise
+            
+            # State: Waiting for user to ask for the next exercise or a tool
             WAITING_FOR_NEXT: [
                 MessageHandler(filters.Regex(r'(?i)^next$'), send_next_exercise),
-            ] + tool_entry_points, # Add tools here so they work while waiting
+            ] + tool_entry_points, 
             
             # State: Waiting for user to finish the exercise
             EXERCISE_IN_PROGRESS: [
@@ -349,16 +388,16 @@ def main():
         fallbacks=[
             CommandHandler('cancel', cancel), 
             CommandHandler('help', help_command),
-            CommandHandler('start', start) # Allow restarting
+            CommandHandler('start', start),
+            # NEW: Add the restart command as a fallback
+            CommandHandler('restart', restart_command) 
         ],
     )
 
     application.add_handler(conv_handler)
-
-    # Fallback for commands if sent outside conversation (rare, but good practice)
     application.add_handler(CommandHandler('help', help_command))
 
-    print("Mindset Bot is running...")
+    logger.info("Mindset Bot is running...")
     application.run_polling()
 
 if __name__ == '__main__':
