@@ -11,7 +11,7 @@ from telegram.ext import (
 
 # --- CONFIGURATION ---
 # Replace this with your actual Token or set it as an environment variable
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TOKEN_HERE")
+TOKEN = os.getenv("8342995076:AAH9TosXOwx_1KF3Kb5TwrKEcVlWqUmPEBI", "8342995076:AAH9TosXOwx_1KF3Kb5TwrKEcVlWqUmPEBI")
 DATA_FILE = "user_data.pkl"
 
 # --- LOGGING ---
