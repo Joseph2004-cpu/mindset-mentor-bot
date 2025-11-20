@@ -922,11 +922,11 @@ if __name__ == '__main__':
 def main():
     """Run the bot"""
     
-    if TELEGRAM_TOKEN == "YOUR_BOT_TOKEN_HERE":
+    if TELEGRAM_TOKEN == "8342995076:AAF-oiY5mOqp-Jjf9dy78xXlC7x6efs64_0":
         logger.error("ERROR: Please set TELEGRAM_BOT_TOKEN environment variable")
         return
     
-    if PAYSTACK_SECRET_KEY == "sk_test_YOUR_SECRET_KEY":
+    if PAYSTACK_SECRET_KEY == "sk_test_85dbe5736b58511083732359b6a5441292463430":
         logger.error("ERROR: Please set PAYSTACK_SECRET_KEY environment variable")
         return
     
