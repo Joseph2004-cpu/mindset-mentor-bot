@@ -146,6 +146,8 @@ Simply send me your science questions and I'll guide you through the solution st
 *Commands:*
 /help - Show help information
 /pro - Subscribe for unlimited access after trial
+/status - Check your subscription status
+/verify - Verify your payment after subscribing
 
 Let's begin your learning journey! 🚀"""
     
@@ -270,7 +272,9 @@ Click the link below to complete your payment:
 
 *Reference:* `{reference}`
 
-After payment, your account will be automatically upgraded to Pro access.
+*After paying:*
+1. Return to this chat
+2. Send /verify to activate your Pro access
 
 If you have any issues, please contact support."""
         
@@ -284,6 +288,14 @@ Please try again with /pro or contact support."""
         
         await update.message.reply_text(error_message, parse_mode='Markdown')
     
+    return END
+
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel the conversation."""
+    await update.message.reply_text(
+        "Subscription cancelled. Use /pro anytime to subscribe!"
+    )
     return END
 
 
@@ -375,6 +387,8 @@ def main() -> None:
     application.add_handler(conv_handler)  # Highest priority
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("verify", verify_payment))
+    application.add_handler(CommandHandler("status", check_status))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, socratic_qna))  # Fallback
     
     # Start the bot
