@@ -33,8 +33,7 @@ gemini_model = genai.GenerativeModel('gemini-2.5-flash')
 
 # Paystack Configuration
 PAYSTACK_INIT_URL = "https://api.paystack.co/transaction/initialize"
-PRO_AMOUNT = 2000  # 10.00 in kobo (smallest currency unit)
-PRO_PLAN_CODE = "PLN_PRO_TUTOR"
+PRO_AMOUNT = 2000  # 20.00 NGN in kobo (smallest currency unit)
 CALLBACK_URL = "https://t.me/your_bot_username"  # Replace with your bot username
 
 # Conversation States
@@ -106,8 +105,8 @@ def initialize_paystack_transaction(email: str, amount: int) -> Dict[str, Any]:
     payload = {
         "email": email,
         "amount": amount,
-        "plan": PRO_PLAN_CODE,
-        "callback_url": CALLBACK_URL
+        "callback_url": CALLBACK_URL,
+        "currency": "NGN"
     }
     
     try:
@@ -115,7 +114,14 @@ def initialize_paystack_transaction(email: str, amount: int) -> Dict[str, Any]:
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        logger.error(f"Paystack API error: {e}")
+        logger.error(f"Paystack API error: {type(e).__name__}: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                error_detail = e.response.json()
+                logger.error(f"Paystack error detail: {error_detail}")
+                return {"status": False, "message": error_detail.get('message', str(e))}
+            except:
+                pass
         return {"status": False, "message": str(e)}
 
 
@@ -157,7 +163,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 *After Trial:*
 • Subscribe with /pro for continued access
-• Only 10.00 for unlimited tutoring
+• Only 40.00 for unlimited tutoring
 
 *How It Works:*
 1. Send me any science question
@@ -188,7 +194,7 @@ async def socratic_qna(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 Thank you for trying the Socratic Science Tutor! To continue learning with unlimited AI guidance, please subscribe:
 
-Use /pro to get unlimited access for just $20.00
+Use /pro to get unlimited access for just 40.00
 
 Stay curious! 🌟"""
         await update.message.reply_text(expired_message, parse_mode='Markdown')
@@ -221,7 +227,7 @@ async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 Get unlimited AI-powered Socratic tutoring for High School Science!
 
-*Price:* $10.00
+*Price:* 40.00
 *Benefits:*
 • Unlimited questions and guidance
 • 24/7 access to AI tutor
