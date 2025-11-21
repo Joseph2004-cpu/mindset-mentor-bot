@@ -33,7 +33,7 @@ gemini_model = genai.GenerativeModel('gemini-2.5-flash')
 
 # Paystack Configuration
 PAYSTACK_INIT_URL = "https://api.paystack.co/transaction/initialize"
-PRO_AMOUNT = 2000  # 20.00 NGN in kobo (smallest currency unit)
+PRO_AMOUNT = 15500  # 155.00 GHS (~$10 USD) in pesewas (smallest currency unit)
 CALLBACK_URL = "https://t.me/your_bot_username"  # Replace with your bot username
 
 # Conversation States
@@ -106,7 +106,7 @@ def initialize_paystack_transaction(email: str, amount: int) -> Dict[str, Any]:
         "email": email,
         "amount": amount,
         "callback_url": CALLBACK_URL,
-        "currency": "NGN"
+        "currency": "GHS"
     }
     
     try:
@@ -163,7 +163,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 *After Trial:*
 • Subscribe with /pro for continued access
-• Only $10.00 for unlimited tutoring
+• Only GHS 155.00 ($10 USD) for unlimited tutoring
 
 *How It Works:*
 1. Send me any science question
@@ -194,7 +194,7 @@ async def socratic_qna(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 Thank you for trying the Socratic Science Tutor! To continue learning with unlimited AI guidance, please subscribe:
 
-Use /pro to get unlimited access for just $10.00
+Use /pro to get unlimited access for just 40.00
 
 Stay curious! 🌟"""
         await update.message.reply_text(expired_message, parse_mode='Markdown')
@@ -227,7 +227,7 @@ async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 Get unlimited AI-powered Socratic tutoring for High School Science!
 
-*Price:* $10.00
+*Price:* GHS 155.00 (~$10 USD)
 *Benefits:*
 • Unlimited questions and guidance
 • 24/7 access to AI tutor
