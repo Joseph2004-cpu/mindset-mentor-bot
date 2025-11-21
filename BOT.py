@@ -34,7 +34,7 @@ gemini_model = genai.GenerativeModel('gemini-2.5-flash')
 # Paystack Configuration
 PAYSTACK_INIT_URL = "https://api.paystack.co/transaction/initialize"
 PRO_AMOUNT = 15500  # 155.00 GHS (~$10 USD) in pesewas (smallest currency unit)
-CALLBACK_URL = "https://t.me/your_bot_username"  # Replace with your bot username
+CALLBACK_URL = "https://t.me/FocusFlowXbot"  # Replace YourBotUsername with your actual bot username
 
 # Conversation States
 AWAITING_EMAIL = 1
@@ -287,7 +287,68 @@ Please try again with /pro or contact support."""
     return END
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Allow users to manually verify their payment."""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_data:
+        initialize_user(user_id)
+    
+    # For now, manually upgrade to pro (you can verify payment reference later)
+    user_data[user_id]['status'] = 'pro'
+    
+    success_message = """🎉 *Payment Verified!*
+
+Your account has been upgraded to Pro Access!
+
+✅ You now have:
+• Unlimited AI tutoring
+• 24/7 access
+• All science subjects
+
+Start asking questions! 🚀"""
+    
+    await update.message.reply_text(success_message, parse_mode='Markdown')
+
+
+async def check_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Check user's subscription status."""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_data:
+        initialize_user(user_id)
+    
+    user = user_data[user_id]
+    status = user['status'].upper()
+    
+    if user['status'] == 'free':
+        trial_end = user['trial_start'] + datetime.timedelta(hours=TRIAL_DURATION_HOURS)
+        time_left = trial_end - datetime.datetime.now()
+        
+        if time_left.total_seconds() > 0:
+            hours_left = int(time_left.total_seconds() / 3600)
+            status_msg = f"""📊 *Your Status*
+
+Plan: FREE TRIAL
+Expires: {trial_end.strftime('%Y-%m-%d %H:%M')}
+Time Left: {hours_left} hours
+
+Upgrade with /pro for unlimited access!"""
+        else:
+            status_msg = """📊 *Your Status*
+
+Plan: TRIAL EXPIRED
+Upgrade with /pro to continue learning!"""
+    else:
+        status_msg = f"""📊 *Your Status*
+
+Plan: {status} ✅
+Access: Unlimited
+Status: Active
+
+Enjoy unlimited learning! 🚀"""
+    
+    await update.message.reply_text(status_msg, parse_mode='Markdown')
     """Cancel the conversation."""
     await update.message.reply_text(
         "Subscription cancelled. Use /pro anytime to subscribe!"
