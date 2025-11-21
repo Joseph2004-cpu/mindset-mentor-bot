@@ -163,7 +163,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 *After Trial:*
 • Subscribe with /pro for continued access
-• Only 40.00 for unlimited tutoring
+• Only $10.00 for unlimited tutoring
 
 *How It Works:*
 1. Send me any science question
@@ -194,7 +194,7 @@ async def socratic_qna(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 Thank you for trying the Socratic Science Tutor! To continue learning with unlimited AI guidance, please subscribe:
 
-Use /pro to get unlimited access for just 40.00
+Use /pro to get unlimited access for just $10.00
 
 Stay curious! 🌟"""
         await update.message.reply_text(expired_message, parse_mode='Markdown')
@@ -227,7 +227,7 @@ async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 Get unlimited AI-powered Socratic tutoring for High School Science!
 
-*Price:* 40.00
+*Price:* $10.00
 *Benefits:*
 • Unlimited questions and guidance
 • 24/7 access to AI tutor
