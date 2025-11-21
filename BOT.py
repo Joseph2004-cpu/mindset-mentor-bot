@@ -29,7 +29,7 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY or not PAYSTACK_SECRET_KEY:
 
 # Initialize Gemini Client
 genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel('gemini-pro')
+gemini_model = genai.GenerativeModel('gemini-2.5-flash')
 
 # Paystack Configuration
 PAYSTACK_INIT_URL = "https://api.paystack.co/transaction/initialize"
@@ -206,10 +206,9 @@ Stay curious! 🌟"""
         await update.message.reply_text(response.text)
         
     except Exception as e:
-        logger.error(f"Gemini API error: {e}")
-        await update.message.reply_text(
-            "I apologize, but I encountered an error processing your question. Please try again in a moment."
-        )
+        logger.error(f"Gemini API error: {type(e).__name__}: {str(e)}")
+        error_msg = f"I apologize, but I encountered an error processing your question.\n\nError: {type(e).__name__}\n\nPlease try again in a moment."
+        await update.message.reply_text(error_msg)
 
 
 # ========== PAYMENT FLOW (ConversationHandler) ==========
