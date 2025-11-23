@@ -3,51 +3,62 @@ import re
 import logging
 import datetime
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, List
+import json
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ConversationHandler,
     filters,
     ContextTypes,
 )
 
-import google.generativeai as genai
-
 # ========== CONFIGURATION ==========
-# Environment variables (must be set before running)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 
 # Validate environment variables
-if not TELEGRAM_TOKEN or not GEMINI_API_KEY or not PAYSTACK_SECRET_KEY:
-    raise ValueError("Missing required environment variables: TELEGRAM_TOKEN, GEMINI_API_KEY, PAYSTACK_SECRET_KEY")
+if not TELEGRAM_TOKEN or not OPENROUTER_API_KEY or not PAYSTACK_SECRET_KEY:
+    raise ValueError("Missing required environment variables")
 
-# Initialize Gemini Client
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+# OpenRouter Configuration
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+PRIMARY_MODEL = "google/gemini-2.5-pro-free"
+BACKUP_MODEL = "meta-llama/llama-4-maverick-free"
 
 # Paystack Configuration
 PAYSTACK_INIT_URL = "https://api.paystack.co/transaction/initialize"
-PRO_AMOUNT = 15500  # 155.00 GHS (~$10 USD) in pesewas (smallest currency unit)
-CALLBACK_URL = "https://t.me/FocusFlowXbot"  # Replace YourBotUsername with your actual bot username
+CALLBACK_URL = "https://t.me/YourBotUsername"  # Update with your bot username
+
+# Pricing (in GHS pesewas)
+PRICING = {
+    'creator': {'amount': 30000, 'name': 'Creator', 'limit': 100},
+    'business': {'amount': 75000, 'name': 'Business', 'limit': 500},
+    'agency': {'amount': 225000, 'name': 'Agency', 'limit': 999999}
+}
+
+# Free tier limits
+FREE_DAILY_LIMIT = 5
+TRIAL_DURATION_HOURS = 48
 
 # Conversation States
-AWAITING_EMAIL = 1
-END = ConversationHandler.END
+AWAITING_EMAIL, AWAITING_PLAN = range(2)
 
-# Trial Configuration
-TRIAL_DURATION_HOURS = 48  # 2 days
-
-# System Prompt for AI
-SOCRATIC_SYSTEM_PROMPT = """You are the ethical, infinitely patient High School Science Coach. Your mandate is to use the Socratic method to guide the student, never providing the final solution to a homework or test problem. If a user asks for a final answer, you must respond with a guiding question or the first step of the solution, using a positive and encouraging tone. Your expertise covers all core High School Science subjects, including Biology, Chemistry, and Physics."""
+# Content types
+CONTENT_TYPES = {
+    '📱 Social Media Post': 'social_post',
+    '📢 Ad Copy': 'ad_copy',
+    '📦 Product Description': 'product_desc',
+    '#️⃣ Hashtags': 'hashtags',
+    '🎨 Generate Image': 'image'
+}
 
 # ========== STATE MANAGEMENT ==========
-# In-memory user data storage
 user_data: Dict[int, Dict[str, Any]] = {}
 
 # ========== LOGGING ==========
@@ -59,43 +70,106 @@ logger = logging.getLogger(__name__)
 
 
 # ========== HELPER FUNCTIONS ==========
-def is_valid_email(email: str) -> bool:
-    """Validate email format using regex."""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
-
-
 def initialize_user(user_id: int) -> None:
     """Initialize a new user's data."""
     if user_id not in user_data:
         user_data[user_id] = {
             'status': 'free',
             'email': None,
-            'trial_start': datetime.datetime.now()
+            'trial_start': datetime.datetime.now(),
+            'daily_usage': 0,
+            'last_reset': datetime.datetime.now().date(),
+            'total_generations': 0,
+            'plan_name': None
         }
         logger.info(f"Initialized new user: {user_id}")
 
 
-def is_trial_active(user_id: int) -> bool:
-    """Check if user's trial is still active."""
-    if user_id not in user_data:
-        return False
+def reset_daily_usage(user_id: int) -> None:
+    """Reset daily usage counter if it's a new day."""
+    user = user_data[user_id]
+    today = datetime.datetime.now().date()
+    
+    if user['last_reset'] < today:
+        user['daily_usage'] = 0
+        user['last_reset'] = today
+
+
+def check_usage_limit(user_id: int) -> tuple[bool, int]:
+    """Check if user can generate content. Returns (can_generate, remaining)."""
+    initialize_user(user_id)
+    reset_daily_usage(user_id)
     
     user = user_data[user_id]
     
-    # Pro/Elite users always have access
-    if user['status'] in ['pro', 'elite']:
-        return True
-    
-    # Check trial expiration for free users
     if user['status'] == 'free':
-        time_diff = datetime.datetime.now() - user['trial_start']
-        return time_diff.total_seconds() < (TRIAL_DURATION_HOURS * 3600)
+        remaining = FREE_DAILY_LIMIT - user['daily_usage']
+        return (remaining > 0, remaining)
+    else:
+        plan_limit = PRICING[user['status']]['limit']
+        remaining = plan_limit - user['daily_usage']
+        return (remaining > 0, remaining)
+
+
+def increment_usage(user_id: int) -> None:
+    """Increment user's usage counter."""
+    user_data[user_id]['daily_usage'] += 1
+    user_data[user_id]['total_generations'] += 1
+
+
+def is_valid_email(email: str) -> bool:
+    """Validate email format."""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+
+def call_openrouter(prompt: str, system_prompt: str = None) -> str:
+    """Call OpenRouter API with fallback."""
+    messages = []
     
-    return False
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    
+    messages.append({"role": "user", "content": prompt})
+    
+    models = [PRIMARY_MODEL, BACKUP_MODEL]
+    
+    for model in models:
+        try:
+            response = requests.post(
+                OPENROUTER_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model,
+                    "messages": messages
+                },
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            return result['choices'][0]['message']['content']
+            
+        except Exception as e:
+            logger.error(f"Error with model {model}: {e}")
+            if model == models[-1]:  # Last model failed
+                return None
+            continue
+    
+    return None
 
 
-def initialize_paystack_transaction(email: str, amount: int) -> Dict[str, Any]:
+def generate_image_url(prompt: str) -> str:
+    """Generate image using Pollinations.ai (no API key needed!)"""
+    # Clean prompt for URL
+    clean_prompt = prompt.replace(' ', '%20')
+    return f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&nologo=true"
+
+
+def initialize_paystack_transaction(email: str, amount: int, plan: str) -> Dict[str, Any]:
     """Initialize a Paystack transaction."""
     headers = {
         "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
@@ -106,7 +180,10 @@ def initialize_paystack_transaction(email: str, amount: int) -> Dict[str, Any]:
         "email": email,
         "amount": amount,
         "callback_url": CALLBACK_URL,
-        "currency": "GHS"
+        "currency": "GHS",
+        "metadata": {
+            "plan": plan
+        }
     }
     
     try:
@@ -114,15 +191,34 @@ def initialize_paystack_transaction(email: str, amount: int) -> Dict[str, Any]:
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        logger.error(f"Paystack API error: {type(e).__name__}: {str(e)}")
+        logger.error(f"Paystack API error: {e}")
         if hasattr(e, 'response') and e.response is not None:
             try:
                 error_detail = e.response.json()
-                logger.error(f"Paystack error detail: {error_detail}")
                 return {"status": False, "message": error_detail.get('message', str(e))}
             except:
                 pass
         return {"status": False, "message": str(e)}
+
+
+# ========== CONTENT GENERATION SYSTEM PROMPTS ==========
+SYSTEM_PROMPTS = {
+    'social_post': """You are a creative social media expert. Generate engaging, viral-worthy social media posts. 
+    Include emojis, call-to-action, and make it platform-optimized (Instagram/Facebook/Twitter).
+    Keep posts between 100-200 characters for optimal engagement.""",
+    
+    'ad_copy': """You are a direct response copywriter. Create compelling ad copy that converts.
+    Use proven copywriting formulas (AIDA, PAS, etc.). Include a strong headline and clear CTA.
+    Focus on benefits, not features. Make it persuasive and action-oriented.""",
+    
+    'product_desc': """You are an e-commerce product description specialist. Write SEO-optimized, 
+    persuasive product descriptions that sell. Highlight key features, benefits, and unique selling points.
+    Use sensory language and create desire.""",
+    
+    'hashtags': """You are a social media hashtag expert. Generate 20-30 relevant, trending hashtags.
+    Mix popular hashtags with niche-specific ones. Include size variations (mega, macro, micro).
+    Format as a clean list separated by spaces."""
+}
 
 
 # ========== COMMAND HANDLERS ==========
@@ -131,268 +227,461 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     initialize_user(user_id)
     
-    user = user_data[user_id]
-    trial_end = user['trial_start'] + datetime.timedelta(hours=TRIAL_DURATION_HOURS)
-    
-    welcome_message = f"""🎓 *Welcome to the Socratic Science Tutor!*
+    welcome_message = """🎨 *Welcome to AI Content Creator Pro!*
 
-I'm here to guide you through High School Science (Biology, Chemistry, Physics) using the Socratic method. I won't give you direct answers, but I'll help you discover them yourself!
+I help businesses create amazing content in seconds using AI!
 
-📅 *Your 2-Day Free Trial Started!*
-Trial expires: {trial_end.strftime('%Y-%m-%d %H:%M:%S')}
+✨ *What I Can Create:*
+📱 Social Media Posts
+📢 Ad Copy
+📦 Product Descriptions
+#️⃣ Trending Hashtags
+🎨 AI-Generated Images
 
-Simply send me your science questions and I'll guide you through the solution step by step.
+🎁 *FREE TIER:* 5 generations per day
+⭐ *CREATOR:* 100/day for GHS 300/month
+💼 *BUSINESS:* 500/day for GHS 750/month
+🚀 *AGENCY:* Unlimited for GHS 2,250/month
 
-*Commands:*
-/help - Show help information
-/pro - Subscribe for unlimited access after trial
-/status - Check your subscription status
-/verify - Verify your payment after subscribing
+*Quick Start:*
+/create - Start creating content
+/upgrade - View pricing plans
+/status - Check your usage
+/help - Full guide
 
-Let's begin your learning journey! 🚀"""
+Let's create something amazing! 🚀"""
     
     await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
-    help_text = """📚 *How to Use This Bot*
+    help_text = """📚 *AI Content Creator - Complete Guide*
 
-*Free Trial:*
-• 2 days of unlimited AI tutoring
-• Covers Biology, Chemistry, and Physics
-• Uses Socratic method to guide your learning
+*🎯 How It Works:*
+1. Choose content type with /create
+2. Describe what you need
+3. Get AI-generated content instantly
+4. Copy, edit, and use!
 
-*After Trial:*
-• Subscribe with /pro for continued access
-• Only GHS 155.00 ($10 USD) for unlimited tutoring
+*📝 Content Types:*
 
-*How It Works:*
-1. Send me any science question
-2. I'll guide you with questions and hints
-3. You discover the answer yourself!
+*📱 Social Media Posts*
+Perfect for Instagram, Facebook, Twitter
+Example: "Post about new coffee shop opening"
 
-*Example:*
-You: "What is photosynthesis?"
-Me: "Great question! Let's explore this together. What do you know about how plants get their energy?"
+*📢 Ad Copy*
+High-converting advertisements
+Example: "Ad for fitness app targeting busy professionals"
 
-Ready to learn? Just send me your question! 🔬"""
+*📦 Product Descriptions*
+SEO-optimized descriptions that sell
+Example: "Description for wireless earbuds with noise cancellation"
+
+*#️⃣ Hashtags*
+Trending, relevant hashtags for reach
+Example: "Hashtags for fashion boutique"
+
+*🎨 AI Images*
+Generate custom images
+Example: "Modern minimalist logo for tech startup"
+
+*💡 Pro Tips:*
+• Be specific about your target audience
+• Mention tone (professional, casual, funny)
+• Include key features you want highlighted
+• Specify platform (Instagram, Facebook, etc.)
+
+*💰 Pricing Plans:*
+FREE: 5 generations/day
+CREATOR: 100/day - GHS 300/month
+BUSINESS: 500/day - GHS 750/month
+AGENCY: Unlimited - GHS 2,250/month
+
+Ready to create? Use /create! 🚀"""
     
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
 
-# ========== SOCRATIC TUTOR (AI Handler) ==========
-async def socratic_qna(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle general messages with AI-powered Socratic guidance."""
+async def create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show content creation menu."""
     user_id = update.effective_user.id
-    user_message = update.message.text
-    
-    # Initialize user if needed
     initialize_user(user_id)
     
-    # Check trial status
-    if not is_trial_active(user_id):
-        expired_message = """⏰ *Your 2-Day Trial Has Expired*
-
-Thank you for trying the Socratic Science Tutor! To continue learning with unlimited AI guidance, please subscribe:
-
-Use /pro to get unlimited access for just 40.00
-
-Stay curious! 🌟"""
-        await update.message.reply_text(expired_message, parse_mode='Markdown')
+    can_generate, remaining = check_usage_limit(user_id)
+    
+    if not can_generate:
+        await update.message.reply_text(
+            f"❌ *Daily Limit Reached*\n\n"
+            f"Upgrade to continue creating:\n"
+            f"/upgrade to view plans",
+            parse_mode='Markdown'
+        )
         return
     
-    # Show typing indicator
-    await update.message.chat.send_action(action="typing")
+    keyboard = []
+    row = []
+    for i, (label, _) in enumerate(CONTENT_TYPES.items()):
+        row.append(InlineKeyboardButton(label, callback_data=f"type_{CONTENT_TYPES[label]}"))
+        if len(row) == 2 or i == len(CONTENT_TYPES) - 1:
+            keyboard.append(row)
+            row = []
     
-    try:
-        # Generate AI response with Socratic system prompt
-        full_prompt = f"{SOCRATIC_SYSTEM_PROMPT}\n\nStudent Question: {user_message}"
-        response = gemini_model.generate_content(full_prompt)
-        
-        # Send AI response
-        await update.message.reply_text(response.text)
-        
-    except Exception as e:
-        logger.error(f"Gemini API error: {type(e).__name__}: {str(e)}")
-        error_msg = f"I apologize, but I encountered an error processing your question.\n\nError: {type(e).__name__}\n\nPlease try again in a moment."
-        await update.message.reply_text(error_msg)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"🎨 *What would you like to create?*\n\n"
+        f"Remaining today: {remaining} generations\n\n"
+        f"Choose a content type:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
 
-# ========== PAYMENT FLOW (ConversationHandler) ==========
-async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the subscription conversation."""
+async def handle_content_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle content type selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    content_type = query.data.replace('type_', '')
+    context.user_data['content_type'] = content_type
+    
+    type_instructions = {
+        'social_post': "📱 Describe your social media post (e.g., 'Post about summer sale, friendly tone, include emoji')",
+        'ad_copy': "📢 Describe your ad (e.g., 'Ad for meal prep service, target busy professionals')",
+        'product_desc': "📦 Describe your product (e.g., 'Bluetooth speaker, waterproof, 20hr battery')",
+        'hashtags': "#️⃣ What niche/topic? (e.g., 'fitness and health', 'small business')",
+        'image': "🎨 Describe the image (e.g., 'modern logo for coffee shop, minimalist, brown tones')"
+    }
+    
+    instruction = type_instructions.get(content_type, "Tell me what you need:")
+    
+    await query.edit_message_text(
+        f"✨ {instruction}\n\n"
+        f"💡 Tip: Be specific for better results!",
+        parse_mode='Markdown'
+    )
+
+
+async def handle_content_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate content based on user input."""
     user_id = update.effective_user.id
+    user_input = update.message.text
+    
     initialize_user(user_id)
     
-    message = """💎 *Upgrade to Pro Access*
-
-Get unlimited AI-powered Socratic tutoring for High School Science!
-
-*Price:* GHS 155.00 (~$10 USD)
-*Benefits:*
-• Unlimited questions and guidance
-• 24/7 access to AI tutor
-• All science subjects covered
-
-To proceed, please enter your email address:"""
+    # Check limits
+    can_generate, remaining = check_usage_limit(user_id)
     
-    await update.message.reply_text(message, parse_mode='Markdown')
+    if not can_generate:
+        await update.message.reply_text(
+            f"❌ *Daily Limit Reached*\n\n"
+            f"Upgrade for more:\n/upgrade",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Get content type from context
+    content_type = context.user_data.get('content_type')
+    
+    if not content_type:
+        await update.message.reply_text(
+            "Please start with /create to choose a content type first!"
+        )
+        return
+    
+    # Show loading message
+    loading_msg = await update.message.reply_text("⏳ *Generating your content...*", parse_mode='Markdown')
+    
+    try:
+        if content_type == 'image':
+            # Generate image URL
+            image_url = generate_image_url(user_input)
+            
+            await loading_msg.delete()
+            await update.message.reply_photo(
+                photo=image_url,
+                caption=f"🎨 *Your AI-Generated Image*\n\n"
+                        f"Prompt: {user_input}\n\n"
+                        f"Remaining today: {remaining - 1}\n"
+                        f"/create for more!",
+                parse_mode='Markdown'
+            )
+        else:
+            # Generate text content
+            system_prompt = SYSTEM_PROMPTS.get(content_type, "")
+            result = call_openrouter(user_input, system_prompt)
+            
+            if result:
+                await loading_msg.delete()
+                
+                # Add type emoji
+                type_emoji = {
+                    'social_post': '📱',
+                    'ad_copy': '📢',
+                    'product_desc': '📦',
+                    'hashtags': '#️⃣'
+                }
+                
+                await update.message.reply_text(
+                    f"{type_emoji.get(content_type, '✨')} *Your Content:*\n\n"
+                    f"{result}\n\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"📊 Remaining today: {remaining - 1}\n"
+                    f"/create for more content!",
+                    parse_mode='Markdown'
+                )
+            else:
+                await loading_msg.delete()
+                await update.message.reply_text(
+                    "❌ Sorry, I encountered an error. Please try again in a moment."
+                )
+                return
+        
+        # Increment usage
+        increment_usage(user_id)
+        
+        # Clear content type from context
+        context.user_data.pop('content_type', None)
+        
+    except Exception as e:
+        logger.error(f"Content generation error: {e}")
+        await loading_msg.delete()
+        await update.message.reply_text(
+            "❌ An error occurred. Please try again!"
+        )
+
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show user status and usage."""
+    user_id = update.effective_user.id
+    initialize_user(user_id)
+    reset_daily_usage(user_id)
+    
+    user = user_data[user_id]
+    
+    plan_name = user.get('plan_name', 'FREE')
+    status_emoji = '🆓' if user['status'] == 'free' else '⭐'
+    
+    if user['status'] == 'free':
+        limit = FREE_DAILY_LIMIT
+    else:
+        limit = PRICING[user['status']]['limit']
+    
+    remaining = limit - user['daily_usage']
+    
+    status_msg = f"""{status_emoji} *Your Status*
+
+📊 *Plan:* {plan_name}
+✅ *Status:* Active
+📈 *Used Today:* {user['daily_usage']}/{limit}
+🎯 *Remaining:* {remaining}
+🏆 *Total Created:* {user['total_generations']}
+
+Want to upgrade? /upgrade
+Create content: /create"""
+    
+    await update.message.reply_text(status_msg, parse_mode='Markdown')
+
+
+async def upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show pricing plans."""
+    pricing_msg = """💎 *Upgrade Your Plan*
+
+Choose the plan that fits your needs:
+
+⭐ *CREATOR PLAN*
+GHS 300/month (~$20)
+• 100 generations per day
+• All content types
+• Priority support
+• Perfect for freelancers
+
+💼 *BUSINESS PLAN*
+GHS 750/month (~$50)
+• 500 generations per day
+• All content types
+• Priority support
+• Analytics dashboard
+• Perfect for small businesses
+
+🚀 *AGENCY PLAN*
+GHS 2,250/month (~$150)
+• UNLIMITED generations
+• All content types
+• Priority support
+• White-label option
+• API access
+• Perfect for agencies
+
+Ready to upgrade? /subscribe"""
+    
+    await update.message.reply_text(pricing_msg, parse_mode='Markdown')
+
+
+# ========== SUBSCRIPTION FLOW ==========
+async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start subscription flow."""
+    keyboard = [
+        [InlineKeyboardButton("⭐ Creator - GHS 300", callback_data="plan_creator")],
+        [InlineKeyboardButton("💼 Business - GHS 750", callback_data="plan_business")],
+        [InlineKeyboardButton("🚀 Agency - GHS 2,250", callback_data="plan_agency")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="plan_cancel")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "💳 *Select Your Plan:*",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+    
+    return AWAITING_PLAN
+
+
+async def handle_plan_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle plan selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "plan_cancel":
+        await query.edit_message_text("Subscription cancelled. Upgrade anytime with /subscribe!")
+        return ConversationHandler.END
+    
+    plan = query.data.replace('plan_', '')
+    context.user_data['selected_plan'] = plan
+    
+    await query.edit_message_text(
+        f"✉️ *Enter your email address:*\n\n"
+        f"We'll send your invoice and receipt here.",
+        parse_mode='Markdown'
+    )
+    
     return AWAITING_EMAIL
 
 
 async def collect_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Collect and validate email, then initialize Paystack transaction."""
+    """Collect email and initialize payment."""
     user_id = update.effective_user.id
     email = update.message.text.strip()
     
-    # Validate email
     if not is_valid_email(email):
         await update.message.reply_text(
-            "❌ Invalid email format. Please enter a valid email address:"
+            "❌ Invalid email. Please enter a valid email address:"
         )
         return AWAITING_EMAIL
+    
+    plan = context.user_data.get('selected_plan')
+    
+    if not plan or plan not in PRICING:
+        await update.message.reply_text("Error: Invalid plan. Please start over with /subscribe")
+        return ConversationHandler.END
     
     # Store email
     user_data[user_id]['email'] = email
     
-    # Initialize Paystack transaction
-    await update.message.reply_text("⏳ Initializing payment...")
+    # Initialize payment
+    await update.message.reply_text("⏳ *Initializing payment...*", parse_mode='Markdown')
     
-    result = initialize_paystack_transaction(email, PRO_AMOUNT)
+    plan_info = PRICING[plan]
+    result = initialize_paystack_transaction(email, plan_info['amount'], plan)
     
     if result.get('status'):
         authorization_url = result['data']['authorization_url']
         reference = result['data']['reference']
         
-        payment_message = f"""✅ *Payment Link Generated!*
+        payment_message = f"""✅ *Payment Link Ready!*
 
-Click the link below to complete your payment:
+💳 *Plan:* {plan_info['name']}
+💰 *Amount:* GHS {plan_info['amount']/100:.2f}
+
+Click below to pay:
 {authorization_url}
 
 *Reference:* `{reference}`
 
-*After paying:*
-1. Return to this chat
-2. Send /verify to activate your Pro access
+*After payment:*
+1. Return here
+2. Send /verify to activate
 
-If you have any issues, please contact support."""
+Questions? Contact support."""
         
         await update.message.reply_text(payment_message, parse_mode='Markdown')
     else:
-        error_message = f"""❌ *Payment Initialization Failed*
+        error_msg = f"""❌ *Payment Failed*
 
 Error: {result.get('message', 'Unknown error')}
 
-Please try again with /pro or contact support."""
+Please try again: /subscribe"""
         
-        await update.message.reply_text(error_message, parse_mode='Markdown')
+        await update.message.reply_text(error_msg, parse_mode='Markdown')
     
-    return END
-
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel the conversation."""
-    await update.message.reply_text(
-        "Subscription cancelled. Use /pro anytime to subscribe!"
-    )
-    return END
+    return ConversationHandler.END
 
 
 async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Allow users to manually verify their payment."""
+    """Manually verify and activate subscription."""
     user_id = update.effective_user.id
     
+    # For demo: manually upgrade (in production, use webhook)
     if user_id not in user_data:
         initialize_user(user_id)
     
-    # For now, manually upgrade to pro (you can verify payment reference later)
-    user_data[user_id]['status'] = 'pro'
+    # Simulate upgrade to creator plan
+    user_data[user_id]['status'] = 'creator'
+    user_data[user_id]['plan_name'] = 'CREATOR'
     
-    success_message = """🎉 *Payment Verified!*
+    success_msg = """🎉 *Payment Verified!*
 
-Your account has been upgraded to Pro Access!
+Your account has been upgraded!
 
-✅ You now have:
-• Unlimited AI tutoring
-• 24/7 access
-• All science subjects
+✅ *Plan:* Creator
+📊 *Limit:* 100 generations/day
+⚡ *Status:* Active
 
-Start asking questions! 🚀"""
+Start creating: /create
+Check status: /status
+
+Thank you for upgrading! 🚀"""
     
-    await update.message.reply_text(success_message, parse_mode='Markdown')
+    await update.message.reply_text(success_msg, parse_mode='Markdown')
 
 
-async def check_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Check user's subscription status."""
-    user_id = update.effective_user.id
-    
-    if user_id not in user_data:
-        initialize_user(user_id)
-    
-    user = user_data[user_id]
-    status = user['status'].upper()
-    
-    if user['status'] == 'free':
-        trial_end = user['trial_start'] + datetime.timedelta(hours=TRIAL_DURATION_HOURS)
-        time_left = trial_end - datetime.datetime.now()
-        
-        if time_left.total_seconds() > 0:
-            hours_left = int(time_left.total_seconds() / 3600)
-            status_msg = f"""📊 *Your Status*
-
-Plan: FREE TRIAL
-Expires: {trial_end.strftime('%Y-%m-%d %H:%M')}
-Time Left: {hours_left} hours
-
-Upgrade with /pro for unlimited access!"""
-        else:
-            status_msg = """📊 *Your Status*
-
-Plan: TRIAL EXPIRED
-Upgrade with /pro to continue learning!"""
-    else:
-        status_msg = f"""📊 *Your Status*
-
-Plan: {status} ✅
-Access: Unlimited
-Status: Active
-
-Enjoy unlimited learning! 🚀"""
-    
-    await update.message.reply_text(status_msg, parse_mode='Markdown')
-    """Cancel the conversation."""
-    await update.message.reply_text(
-        "Subscription cancelled. Use /pro anytime to subscribe!"
-    )
-    return END
+async def cancel_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel subscription flow."""
+    await update.message.reply_text("Subscription cancelled. Upgrade anytime with /subscribe!")
+    return ConversationHandler.END
 
 
 # ========== MAIN APPLICATION ==========
 def main() -> None:
     """Start the bot."""
-    # Create application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # Payment conversation handler (highest priority)
+    # Subscription conversation handler
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('pro', pro_command)],
+        entry_points=[CommandHandler('subscribe', subscribe)],
         states={
+            AWAITING_PLAN: [CallbackQueryHandler(handle_plan_selection)],
             AWAITING_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_email)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler('cancel', cancel_subscription)],
     )
     
-    # Register handlers in priority order
-    application.add_handler(conv_handler)  # Highest priority
+    # Register handlers
+    application.add_handler(conv_handler)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("create", create))
+    application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("upgrade", upgrade))
     application.add_handler(CommandHandler("verify", verify_payment))
-    application.add_handler(CommandHandler("status", check_status))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, socratic_qna))  # Fallback
+    application.add_handler(CallbackQueryHandler(handle_content_type, pattern="^type_"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_content_request))
     
     # Start the bot
-    logger.info("Bot started successfully!")
+    logger.info("AI Content Creator Bot started successfully!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
